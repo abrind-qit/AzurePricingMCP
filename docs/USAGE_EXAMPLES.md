@@ -9,6 +9,7 @@ Real-world examples of using the Azure Pricing MCP Server with VS Code Copilot o
 - [Basic Price Queries](#basic-price-queries)
 - [Multi-Node & Cluster Pricing](#multi-node--cluster-pricing)
 - [Price Comparisons](#price-comparisons)
+- [Region Recommendations](#region-recommendations)
 - [Cost Estimations](#cost-estimations)
 - [SKU Discovery](#sku-discovery)
 - [Storage Pricing](#storage-pricing)
@@ -137,6 +138,88 @@ D4s_v5 Price Comparison:
 ```
 Compare storage options: Premium SSD vs Standard SSD vs Standard HDD
 ```
+
+---
+
+## Region Recommendations
+
+The region recommendation tool supports multiple SKU name formats for convenience:
+- **Display format**: `D4s v5`, `E4as v5`
+- **ARM format**: `Standard_D4s_v5`, `Standard_E4as_v5`
+- **Underscore format**: `D4s_v5`, `E4as_v5`
+
+All formats are automatically normalized and will return the same results.
+
+### Find Cheapest Regions for VMs
+
+**Query:**
+```
+What are the cheapest regions for D4s v5 VMs?
+```
+
+or equivalently:
+```
+What are the cheapest regions for Standard_D4s_v5 VMs?
+```
+
+**What happens:**
+- Tool: `azure_region_recommend`
+- Parameters: `service_name=Virtual Machines`, `sku_name=D4s v5`, `top_n=10`
+
+**Sample Response:**
+```
+🌍 Region Recommendations for Virtual Machines - D4s v5
+
+Currency: USD
+Total regions found: 34
+Showing top: 10
+
+📊 Summary:
+   🥇 Cheapest: IN Central (centralindia) - $0.023400
+   🥉 Most Expensive: BR South (brazilsouth) - $0.117000
+   💰 Max Savings: 80.0% by choosing the cheapest region
+
+📋 Ranked Recommendations:
+
+| Rank | Region | Location | Price | Savings vs Max |
+|------|--------|----------|-------|----------------|
+| 🥇 1 | centralindia | IN Central | $0.0234/hr | 80.0% |
+| 🥈 2 | eastus2 | US East 2 | $0.0336/hr | 71.2% |
+| 🥉 3 | eastus | US East | $0.0336/hr | 71.2% |
+| 4 | westus3 | US West 3 | $0.0336/hr | 71.2% |
+| 5 | northcentralus | US North Central | $0.0364/hr | 68.9% |
+```
+
+---
+
+### AKS Cluster - Find Cheapest Region
+
+**Query:**
+```
+Find the cheapest regions for running D8s v6 nodes
+```
+
+or with ARM format:
+```
+Find the cheapest regions for Standard_D8s_v6
+```
+
+**What happens:**
+- Tool: `azure_region_recommend`
+- Parameters: `service_name=Virtual Machines`, `sku_name=D8s v6`, `top_n=5`
+
+---
+
+### Region Recommendations with Discount
+
+**Query:**
+```
+Show cheapest regions for E4s v5 VMs with my 15% enterprise discount
+```
+
+**What happens:**
+- Tool: `azure_region_recommend`
+- Parameters: `service_name=Virtual Machines`, `sku_name=E4s v5`, `discount_percentage=15`
 
 ---
 

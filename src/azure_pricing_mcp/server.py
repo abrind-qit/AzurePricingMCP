@@ -78,6 +78,64 @@ SERVICE_NAME_MAPPINGS = {
 }
 
 
+def normalize_sku_name(sku_name: str) -> tuple[list[str], str]:
+    """
+    Normalize SKU name to handle different formats and generate search variants.
+
+    Azure API uses different formats across VM generations:
+    - v3, v4: "D4s v3", "D4s v4" (space format)
+    - v5, v6: "Standard_D4s_v5" (ARM format with prefix)
+
+    This function generates multiple search terms to ensure we find the SKU
+    regardless of input format.
+
+    Handles input formats like:
+    - "D4s v5" -> searches: ["D4s v5", "D4s_v5"]
+    - "Standard_D4s_v5" -> searches: ["D4s_v5", "D4s v5"]
+    - "D4s_v5" -> searches: ["D4s_v5", "D4s v5"]
+    - "D4s" -> searches: ["D4s"]
+
+    Returns:
+        Tuple of (search_terms, display_name):
+        - search_terms: List of search terms to try (in order of priority)
+        - display_name: Human-readable format (e.g., "D4s v5")
+    """
+    if not sku_name:
+        return ([], "")
+
+    original = sku_name.strip()
+    normalized = original
+
+    # Remove "Standard_" or "Basic_" prefix if present (ARM format)
+    prefixes_to_remove = ["Standard_", "Basic_", "standard_", "basic_"]
+    for prefix in prefixes_to_remove:
+        if normalized.startswith(prefix):
+            normalized = normalized[len(prefix) :]
+            break
+
+    # Create display name with spaces
+    display_name = normalized.replace("_", " ")
+
+    # Generate search term variants
+    search_terms = []
+
+    # Variant 1: Underscore format (for v5, v6 SKUs like "Standard_D4s_v5")
+    underscore_variant = normalized.replace(" ", "_")
+    if underscore_variant not in search_terms:
+        search_terms.append(underscore_variant)
+
+    # Variant 2: Space format (for v3, v4 SKUs like "D4s v3")
+    space_variant = normalized.replace("_", " ")
+    if space_variant not in search_terms:
+        search_terms.append(space_variant)
+
+    # Variant 3: Original normalized (no prefix) - might be useful
+    if normalized not in search_terms:
+        search_terms.append(normalized)
+
+    return (search_terms, display_name)
+
+
 class AzurePricingServer:
     """Azure Pricing MCP Server implementation."""
 
@@ -417,6 +475,154 @@ class AzurePricingServer:
         # Add discount info if applied
         if discount_percentage is not None and discount_percentage > 0:
             result["discount_applied"] = {"percentage": discount_percentage, "note": "Prices shown are after discount"}
+
+        return result
+
+    async def recommend_regions(
+        self,
+        service_name: str,
+        sku_name: str,
+        top_n: int = 10,
+        currency_code: str = "USD",
+        discount_percentage: float | None = None,
+    ) -> dict[str, Any]:
+        """
+        Recommend the cheapest Azure regions for a given service and SKU.
+
+        Dynamically discovers all available regions, fetches pricing in parallel batches,
+        and returns ranked recommendations sorted by price.
+
+        Args:
+            service_name: Azure service name (e.g., 'Virtual Machines')
+            sku_name: SKU name to price across regions. Supports multiple formats:
+                      - "D4s v5" (display format)
+                      - "Standard_D4s_v5" (ARM format)
+                      - "D4s_v5" (underscore format)
+            top_n: Number of top recommendations to return (default: 10)
+            currency_code: Currency for pricing (default: USD)
+            discount_percentage: Optional discount to apply to all prices
+
+        Returns:
+            Dict with ranked region recommendations and pricing details
+        """
+        # Normalize the SKU name to handle different input formats
+        # Returns list of search variants and a display name
+        search_terms, display_sku = normalize_sku_name(sku_name)
+
+        # Step 1: Discover all regions where this SKU is available
+        # Try each search term variant until we get results
+        discovery_result: dict[str, Any] = {"items": []}
+
+        for search_term in search_terms:
+            discovery_result = await self.search_azure_prices(
+                service_name=service_name,
+                sku_name=search_term,
+                currency_code=currency_code,
+                limit=500,  # Get many results to discover regions
+                validate_sku=False,  # Skip validation for discovery
+            )
+            if discovery_result.get("items"):
+                break
+
+        if not discovery_result["items"]:
+            return {
+                "error": f"No pricing found for {display_sku} in service {service_name}",
+                "service_name": service_name,
+                "sku_name": display_sku,
+                "sku_input": sku_name,
+                "search_terms_tried": search_terms,
+                "recommendations": [],
+            }
+
+        # Extract unique regions with non-zero prices
+        region_data: dict[str, dict[str, Any]] = {}
+        for item in discovery_result["items"]:
+            region = item.get("armRegionName")
+            price = item.get("retailPrice", 0)
+            location = item.get("location", region)
+
+            # Filter out items with $0 prices (preview/unavailable)
+            if region and price and price > 0:
+                # Keep the lowest price for each region (in case of multiple entries)
+                if region not in region_data or price < region_data[region]["retail_price"]:
+                    region_data[region] = {
+                        "region": region,
+                        "location": location,
+                        "retail_price": price,
+                        "sku_name": item.get("skuName"),
+                        "product_name": item.get("productName"),
+                        "unit_of_measure": item.get("unitOfMeasure"),
+                        "meter_name": item.get("meterName"),
+                    }
+
+        if not region_data:
+            return {
+                "error": f"No regions with valid pricing found for {display_sku}",
+                "service_name": service_name,
+                "sku_name": display_sku,
+                "sku_input": sku_name,
+                "recommendations": [],
+            }
+
+        # Step 2: If we need more detailed pricing, fetch in parallel batches
+        # For now, we already have pricing from discovery - use it directly
+        recommendations = list(region_data.values())
+
+        # Step 3: Apply discount if provided
+        if discount_percentage is not None and discount_percentage > 0:
+            for rec in recommendations:
+                original_price = rec["retail_price"]
+                discounted_price = original_price * (1 - discount_percentage / 100)
+                rec["original_price"] = original_price
+                rec["retail_price"] = round(discounted_price, 6)
+
+        # Step 4: Sort by price (cheapest first)
+        recommendations.sort(key=lambda x: x.get("retail_price", float("inf")))
+
+        # Step 5: Calculate savings vs most expensive region
+        if recommendations:
+            max_price = max(r.get("retail_price", 0) for r in recommendations)
+
+            for rec in recommendations:
+                price = rec.get("retail_price", 0)
+                if max_price > 0:
+                    savings_vs_max = ((max_price - price) / max_price) * 100
+                    rec["savings_vs_most_expensive"] = round(savings_vs_max, 2)
+                else:
+                    rec["savings_vs_most_expensive"] = 0.0
+
+        # Step 6: Limit to top N recommendations
+        top_recommendations = recommendations[:top_n]
+
+        # Build result
+        result: dict[str, Any] = {
+            "service_name": service_name,
+            "sku_name": display_sku,
+            "sku_input": sku_name,  # Original input for transparency
+            "currency": currency_code,
+            "total_regions_found": len(recommendations),
+            "showing_top": min(top_n, len(recommendations)),
+            "recommendations": top_recommendations,
+        }
+
+        # Add summary statistics
+        if recommendations:
+            result["summary"] = {
+                "cheapest_region": recommendations[0]["region"],
+                "cheapest_location": recommendations[0]["location"],
+                "cheapest_price": recommendations[0]["retail_price"],
+                "most_expensive_region": recommendations[-1]["region"],
+                "most_expensive_location": recommendations[-1]["location"],
+                "most_expensive_price": recommendations[-1]["retail_price"],
+                "max_savings_percentage": recommendations[0].get("savings_vs_most_expensive", 0),
+            }
+
+        # Add discount info if applied
+        if discount_percentage is not None and discount_percentage > 0:
+            result["discount_applied"] = {
+                "percentage": discount_percentage,
+                "note": "Prices shown are after discount",
+            }
 
         return result
 
@@ -948,6 +1154,38 @@ def create_server() -> Server:
                         },
                     },
                     "required": ["service_hint"],
+                },
+            ),
+            Tool(
+                name="azure_region_recommend",
+                description="Find the cheapest Azure regions for a given service and SKU. Dynamically discovers all available regions, compares prices, and returns ranked recommendations with savings percentages.",
+                inputSchema={
+                    "type": "object",
+                    "properties": {
+                        "service_name": {
+                            "type": "string",
+                            "description": "Azure service name (e.g., 'Virtual Machines', 'Azure App Service')",
+                        },
+                        "sku_name": {
+                            "type": "string",
+                            "description": "SKU name to price across regions (e.g., 'D4s v3', 'P1v3')",
+                        },
+                        "top_n": {
+                            "type": "integer",
+                            "description": "Number of top recommendations to return (default: 10)",
+                            "default": 10,
+                        },
+                        "currency_code": {
+                            "type": "string",
+                            "description": "Currency code (default: USD)",
+                            "default": "USD",
+                        },
+                        "discount_percentage": {
+                            "type": "number",
+                            "description": "Discount percentage to apply to prices (e.g., 10 for 10% discount)",
+                        },
+                    },
+                    "required": ["service_name", "sku_name"],
                 },
             ),
             Tool(

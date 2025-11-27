@@ -38,6 +38,9 @@ def register_tool_handlers(server: Any, pricing_server: Any) -> None:
                 elif name == "azure_sku_discovery":
                     return await _handle_sku_discovery(pricing_server, arguments)
 
+                elif name == "azure_region_recommend":
+                    return await _handle_region_recommend(pricing_server, arguments)
+
                 elif name == "get_customer_discount":
                     return await _handle_customer_discount(pricing_server, arguments)
 
@@ -173,6 +176,68 @@ async def _handle_price_compare(pricing_server, arguments: dict) -> list[TextCon
         response_text += f"💰 {result['discount_applied']['percentage']}% discount applied - {result['discount_applied']['note']}\n\n"
 
     response_text += json.dumps(result["comparisons"], indent=2)
+
+    return [TextContent(type="text", text=response_text)]
+
+
+async def _handle_region_recommend(pricing_server, arguments: dict) -> list[TextContent]:
+    """Handle azure_region_recommend tool calls."""
+    result = await pricing_server.recommend_regions(**arguments)
+
+    # Check for errors
+    if "error" in result:
+        return [TextContent(type="text", text=f"Error: {result['error']}")]
+
+    recommendations = result.get("recommendations", [])
+    if not recommendations:
+        return [TextContent(type="text", text="No region recommendations found for the specified criteria.")]
+
+    # Build response text
+    response_text = f"""🌍 Region Recommendations for {result['service_name']} - {result['sku_name']}
+
+Currency: {result['currency']}
+Total regions found: {result['total_regions_found']}
+Showing top: {result['showing_top']}
+"""
+
+    # Add discount information if applied
+    if "discount_applied" in result:
+        response_text += f"\n💰 {result['discount_applied']['percentage']}% discount applied - {result['discount_applied']['note']}\n"
+
+    # Add summary
+    if "summary" in result:
+        summary = result["summary"]
+        response_text += f"""
+📊 Summary:
+   🥇 Cheapest: {summary['cheapest_location']} ({summary['cheapest_region']}) - ${summary['cheapest_price']:.6f}
+   🥉 Most Expensive: {summary['most_expensive_location']} ({summary['most_expensive_region']}) - ${summary['most_expensive_price']:.6f}
+   💰 Max Savings: {summary['max_savings_percentage']:.1f}% by choosing the cheapest region
+"""
+
+    # Build recommendations table
+    response_text += "\n📋 Ranked Recommendations:\n\n"
+    response_text += "| Rank | Region | Location | Price | Savings vs Max |\n"
+    response_text += "|------|--------|----------|-------|----------------|\n"
+
+    for i, rec in enumerate(recommendations, 1):
+        region = rec.get("region", "N/A")
+        location = rec.get("location", "N/A")
+        price = rec.get("retail_price", 0)
+        savings = rec.get("savings_vs_most_expensive", 0)
+        unit = rec.get("unit_of_measure", "")
+
+        # Add medal emoji for top 3
+        rank_display = {1: "🥇 1", 2: "🥈 2", 3: "🥉 3"}.get(i, str(i))
+
+        response_text += f"| {rank_display} | {region} | {location} | ${price:.6f}/{unit} | {savings:.1f}% |\n"
+
+    # Add original prices if discount was applied
+    if "discount_applied" in result and recommendations and "original_price" in recommendations[0]:
+        response_text += "\n💵 Original prices (before discount):\n"
+        for i, rec in enumerate(recommendations[:3], 1):  # Show top 3 original prices
+            location = rec.get("location", "N/A")
+            original = rec.get("original_price", 0)
+            response_text += f"   {i}. {location}: ${original:.6f}\n"
 
     return [TextContent(type="text", text=response_text)]
 

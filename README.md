@@ -46,7 +46,8 @@ Then configure your AI assistant (VS Code, Claude Desktop, etc.) to use the MCP 
 | 💡 **Cost Estimation** | Calculate monthly/yearly costs based on usage hours |
 | 💰 **Savings Plans** | View 1-year and 3-year savings plan pricing |
 | 🎯 **Smart SKU Discovery** | Fuzzy matching for service names ("vm" → "Virtual Machines") |
-| 🌍 **Multi-Currency** | Support for USD, EUR, GBP, and more |
+| 🌍 **Region Recommendations** | Find the cheapest Azure regions for any SKU with savings analysis |
+| 💱 **Multi-Currency** | Support for USD, EUR, GBP, and more |
 | 📊 **Real-time Data** | Live data from Azure Retail Prices API |
 | 🏷️ **Customer Discounts** | Apply discount percentages to all pricing queries |
 | 🐳 **Docker Support** | Run in containers for easy deployment and isolation |
@@ -60,6 +61,7 @@ Then configure your AI assistant (VS Code, Claude Desktop, etc.) to use the MCP 
 | `azure_price_search` | Search Azure retail prices with flexible filtering |
 | `azure_price_compare` | Compare prices across regions or SKUs |
 | `azure_cost_estimate` | Estimate costs based on usage patterns |
+| `azure_region_recommend` | Find cheapest regions for a SKU with savings percentages |
 | `azure_discover_skus` | List available SKUs for a specific service |
 | `azure_sku_discovery` | Intelligent SKU discovery with fuzzy name matching |
 | `get_customer_discount` | Get customer discount information |
@@ -412,7 +414,7 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 ## 🙏 Acknowledgments
 
 - **Original Author**: [@charris-msft](https://github.com/charris-msft)
-- **Current Maintainer + Version 2.0**: [@msftnadavbh](https://github.com/msftnadavbh)
+- **Current Maintainer + Version 2.1**: [@msftnadavbh](https://github.com/msftnadavbh)
 - **Contributors**: 
   - [@notoriousmic](https://github.com/notoriousmic) - Testing infrastructure and best practices
 - [Model Context Protocol](https://modelcontextprotocol.io/) - The protocol that makes this possible

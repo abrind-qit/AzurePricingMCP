@@ -294,14 +294,14 @@ python scripts/find_app_service.py
 python -m build
 
 # Outputs to dist/
-# - azure-pricing-mcp-2.0.0.tar.gz
-# - azure_pricing_mcp-2.0.0-py3-none-any.whl
+# - azure-pricing-mcp-2.1.0.tar.gz
+# - azure_pricing_mcp-2.1.0-py3-none-any.whl
 ```
 
 ### Install from Built Package
 
 ```bash
-pip install dist/azure_pricing_mcp-2.0.0-py3-none-any.whl
+pip install dist/azure_pricing_mcp-2.1.0-py3-none-any.whl
 ```
 
 ### Publish to PyPI (Maintainers Only)

@@ -147,6 +147,7 @@ You should see the MCP tools being invoked and real Azure pricing data returned!
 | `azure_price_search` | Search prices with filters (service, region, SKU) |
 | `azure_price_compare` | Compare prices across regions or SKUs |
 | `azure_cost_estimate` | Estimate costs based on usage hours |
+| `azure_region_recommend` | Find cheapest regions for a SKU with savings percentages |
 | `azure_discover_skus` | List available SKUs for a service |
 | `azure_sku_discovery` | Smart SKU discovery with fuzzy matching |
 | `get_customer_discount` | Get customer discount information |

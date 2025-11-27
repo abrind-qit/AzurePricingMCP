@@ -169,7 +169,7 @@ source .venv/bin/activate  # Windows: .venv\Scripts\activate
 # Test import
 python -c "import azure_pricing_mcp; print(azure_pricing_mcp.__version__)"
 
-# Should print: 2.0.0
+# Should print: 2.1.0
 
 # Test server
 python -m azure_pricing_mcp
