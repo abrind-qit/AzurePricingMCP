@@ -15,6 +15,9 @@ authors = [
 maintainers = [
     {name = "Nadav Ben Haim"}
 ]
+contributors = [
+    {name = "Michael Liav"}
+]
 keywords = ["azure", "pricing", "mcp", "model-context-protocol", "cloud-costs", "cost-estimation"]
 classifiers = [
     "Development Status :: 4 - Beta",
