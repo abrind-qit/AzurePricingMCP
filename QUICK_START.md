@@ -121,7 +121,7 @@ docker ps
    - Click refresh/restart next to `azure-pricing`
 
 3. Verify tools are loaded:
-   - You should see **6 tools** available
+   - You should see **8 tools** available
 
 ---
 
@@ -178,6 +178,7 @@ You should see the MCP tools being invoked and real Azure pricing data returned!
 |------|-------------|
 | `azure_price_search` | Search prices with filters (service, region, SKU) |
 | `azure_price_compare` | Compare prices across regions or SKUs |
+| `azure_ri_pricing` | Get Reserved Instance pricing and savings analysis |
 | `azure_cost_estimate` | Estimate costs based on usage hours |
 | `azure_region_recommend` | Find cheapest regions for a SKU with savings percentages |
 | `azure_discover_skus` | List available SKUs for a service |

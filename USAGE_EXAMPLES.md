@@ -7,6 +7,7 @@ Real-world examples of using the Azure Pricing MCP Server with VS Code Copilot o
 ## Table of Contents
 
 - [Basic Price Queries](#basic-price-queries)
+- [Reserved Instance Pricing](#reserved-instance-pricing)
 - [Multi-Node & Cluster Pricing](#multi-node--cluster-pricing)
 - [Price Comparisons](#price-comparisons)
 - [Region Recommendations](#region-recommendations)
@@ -65,6 +66,38 @@ Show me NVIDIA GPU VM pricing in East US 2
 **What happens:**
 - Tool: `azure_price_search`
 - Filters: `service_name=Virtual Machines`, `sku_name=NC`, `region=eastus2`
+
+---
+
+## Reserved Instance Pricing
+
+### Compare RI vs On-Demand
+
+**Query:**
+```
+Show me Reserved Instance pricing for D4s v3 in East US
+```
+
+**What happens:**
+- Tool: `azure_ri_pricing`
+- Filters: `service_name=Virtual Machines`, `sku_name=D4s v3`, `region=eastus`
+
+**Sample Response:**
+```
+### Reserved Instance Savings Analysis
+
+- **D4s v3** (East US) - 1 Year
+  - Savings: **41.5%**
+  - RI Rate: $0.112/hr vs OD Rate: $0.192/hr
+  - Break-even: **7.0 months**
+  - Est. Annual Savings: $700.80
+
+- **D4s v3** (East US) - 3 Years
+  - Savings: **62.0%**
+  - RI Rate: $0.073/hr vs OD Rate: $0.192/hr
+  - Break-even: **13.7 months**
+  - Est. Annual Savings: $1,042.44
+```
 
 ---
 

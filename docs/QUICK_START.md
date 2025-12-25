@@ -89,7 +89,7 @@ echo %VIRTUAL_ENV%\Scripts\python.exe
    - Click refresh/restart next to `azure-pricing`
 
 3. Verify tools are loaded:
-   - You should see **6 tools** available
+   - You should see **8 tools** available
 
 ---
 

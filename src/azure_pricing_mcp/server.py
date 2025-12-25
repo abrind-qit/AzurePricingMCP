@@ -377,6 +377,136 @@ class AzurePricingServer:
 
         return discounted_items
 
+    async def get_ri_pricing(
+        self,
+        service_name: str | None = None,
+        sku_name: str | None = None,
+        region: str | None = None,
+        reservation_term: str | None = None,
+        currency_code: str = "USD",
+        compare_on_demand: bool = True,
+        limit: int = 50,
+    ) -> dict[str, Any]:
+        """
+        Get Reserved Instance pricing and optionally compare with On-Demand.
+        """
+        # 1. Fetch RI Prices
+        ri_filter = ["priceType eq 'Reservation'"]
+        if service_name:
+            ri_filter.append(f"serviceName eq '{service_name}'")
+        if region:
+            ri_filter.append(f"armRegionName eq '{region}'")
+        if sku_name:
+            ri_filter.append(f"contains(skuName, '{sku_name}')")
+
+        params = {
+            "api-version": DEFAULT_API_VERSION,
+            "currencyCode": currency_code,
+            "$filter": " and ".join(ri_filter),
+            "$top": str(limit),
+        }
+
+        ri_data = await self._make_request(AZURE_PRICING_BASE_URL, params)
+        ri_items = ri_data.get("Items", [])
+
+        # Filter by reservation term if specified (API filtering for this is limited)
+        if reservation_term:
+            ri_items = [item for item in ri_items if item.get("reservationTerm") == reservation_term]
+
+        result = {
+            "ri_items": ri_items,
+            "currency": currency_code,
+            "count": len(ri_items),
+        }
+
+        # 2. Fetch On-Demand Prices if requested
+        if compare_on_demand and ri_items:
+            od_filter = ["priceType eq 'Consumption'"]
+            if service_name:
+                od_filter.append(f"serviceName eq '{service_name}'")
+            if region:
+                od_filter.append(f"armRegionName eq '{region}'")
+            if sku_name:
+                od_filter.append(f"contains(skuName, '{sku_name}')")
+
+            od_params = {
+                "api-version": DEFAULT_API_VERSION,
+                "currencyCode": currency_code,
+                "$filter": " and ".join(od_filter),
+                "$top": str(limit * 2),  # Fetch more to ensure coverage
+            }
+
+            od_data = await self._make_request(AZURE_PRICING_BASE_URL, od_params)
+            od_items = od_data.get("Items", [])
+
+            # Calculate savings
+            comparison = self._calculate_ri_savings(ri_items, od_items)
+            result["comparison"] = comparison
+
+        return result
+
+    def _calculate_ri_savings(self, ri_items: list[dict], od_items: list[dict]) -> list[dict]:
+        """Calculate savings and break-even for RI vs On-Demand."""
+        comparison_results = []
+
+        # Index On-Demand items by SKU + Region for fast lookup
+        od_map = {}
+        for item in od_items:
+            # Create a key based on SKU and Region
+            key = (item.get("skuName"), item.get("armRegionName"))
+            od_map[key] = item
+
+        for ri in ri_items:
+            key = (ri.get("skuName"), ri.get("armRegionName"))
+            od = od_map.get(key)
+
+            if od:
+                ri_price = ri.get("retailPrice", 0)
+                od_price = od.get("retailPrice", 0)
+                term = ri.get("reservationTerm", "")
+
+                if od_price > 0:
+                    hours_in_term = 8760 if "1 Year" in term else (26280 if "3 Year" in term else 0)
+
+                    # Determine effective hourly rate for RI
+                    # The API usually returns the total cost for the reservation term
+                    if hours_in_term > 0 and ri_price > od_price:
+                        # Heuristic: if RI price > OD price, it's the total term cost
+                        ri_hourly = ri_price / hours_in_term
+                        total_ri_cost = ri_price
+                    else:
+                        # It might be already hourly (rare/billing frequency dependent) or just cheaper
+                        # But for safety, let's assume if it's a Reservation, it's the total price
+                        # UNLESS it's very small.
+                        # Actually, $1003 is clearly total.
+                        # Let's use the division logic.
+                        ri_hourly = ri_price / hours_in_term if hours_in_term > 0 else ri_price
+                        total_ri_cost = ri_price
+
+                    savings_percent = ((od_price - ri_hourly) / od_price) * 100
+
+                    # Break-even analysis
+                    break_even_months = 0
+                    if total_ri_cost > 0:
+                        monthly_od_cost = od_price * 730
+                        if monthly_od_cost > 0:
+                            break_even_months = total_ri_cost / monthly_od_cost
+
+                    comparison_results.append(
+                        {
+                            "sku": ri.get("skuName"),
+                            "region": ri.get("armRegionName"),
+                            "term": term,
+                            "ri_hourly": round(ri_hourly, 5),
+                            "od_hourly": od_price,
+                            "savings_percentage": round(savings_percent, 2),
+                            "break_even_months": round(break_even_months, 1) if break_even_months else None,
+                            "annual_savings": round((od_price - ri_hourly) * 8760, 2),  # Annualized savings
+                        }
+                    )
+
+        return comparison_results
+
     async def get_customer_discount(self, customer_id: str | None = None) -> dict[str, Any]:
         """Get customer discount information. Currently returns 10% default discount for all customers."""
 
@@ -1210,6 +1340,48 @@ def create_server() -> Server:
                         },
                     },
                     "required": ["service_name", "sku_name"],
+                },
+            ),
+            Tool(
+                name="azure_ri_pricing",
+                description="Get Reserved Instance pricing and savings analysis",
+                inputSchema={
+                    "type": "object",
+                    "properties": {
+                        "service_name": {
+                            "type": "string",
+                            "description": "Azure service name (e.g., 'Virtual Machines')",
+                        },
+                        "sku_name": {
+                            "type": "string",
+                            "description": "SKU name (e.g., 'D4s v3')",
+                        },
+                        "region": {
+                            "type": "string",
+                            "description": "Azure region (e.g., 'eastus')",
+                        },
+                        "reservation_term": {
+                            "type": "string",
+                            "description": "Reservation term ('1 Year' or '3 Years')",
+                            "enum": ["1 Year", "3 Years"],
+                        },
+                        "currency_code": {
+                            "type": "string",
+                            "description": "Currency code (default: USD)",
+                            "default": "USD",
+                        },
+                        "compare_on_demand": {
+                            "type": "boolean",
+                            "description": "Compare with On-Demand prices to calculate savings (default: true)",
+                            "default": True,
+                        },
+                        "limit": {
+                            "type": "integer",
+                            "description": "Maximum number of results (default: 50)",
+                            "default": 50,
+                        },
+                    },
+                    "required": ["service_name"],
                 },
             ),
             Tool(

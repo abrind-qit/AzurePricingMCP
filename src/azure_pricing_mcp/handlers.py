@@ -41,6 +41,9 @@ def register_tool_handlers(server: Any, pricing_server: Any) -> None:
                 elif name == "azure_region_recommend":
                     return await _handle_region_recommend(pricing_server, arguments)
 
+                elif name == "azure_ri_pricing":
+                    return await _handle_ri_pricing(pricing_server, arguments)
+
                 elif name == "get_customer_discount":
                     return await _handle_customer_discount(pricing_server, arguments)
 
@@ -439,3 +442,37 @@ Applicable Services: {result['applicable_services']}
 """
 
     return [TextContent(type="text", text=response_text)]
+
+
+async def _handle_ri_pricing(pricing_server, arguments: dict) -> list[TextContent]:
+    """Handle azure_ri_pricing tool calls."""
+    result = await pricing_server.get_ri_pricing(**arguments)
+
+    response_lines = []
+
+    if result.get("comparison"):
+        response_lines.append("### Reserved Instance Savings Analysis\n")
+        for comp in result["comparison"]:
+            response_lines.append(f"- **{comp['sku']}** ({comp['region']}) - {comp['term']}")
+            response_lines.append(f"  - Savings: **{comp['savings_percentage']}%**")
+            response_lines.append(f"  - RI Rate: {comp['ri_hourly']}/hr vs OD Rate: {comp['od_hourly']}/hr")
+            if comp.get("break_even_months"):
+                response_lines.append(f"  - Break-even: **{comp['break_even_months']} months**")
+            response_lines.append(f"  - Est. Annual Savings: ${comp['annual_savings']:,}")
+            response_lines.append("")
+
+    if result.get("ri_items"):
+        response_lines.append(f"### Raw RI Pricing ({result['count']} items)")
+        for item in result["ri_items"][:10]:  # Show top 10
+            response_lines.append(
+                f"- {item.get('skuName')} ({item.get('armRegionName')}): "
+                f"{item.get('retailPrice')} {result['currency']} / {item.get('unitOfMeasure')} "
+                f"({item.get('reservationTerm')})"
+            )
+        if len(result["ri_items"]) > 10:
+            response_lines.append(f"... and {len(result['ri_items']) - 10} more.")
+    else:
+        response_lines.append("No Reserved Instance pricing found for the given criteria.")
+
+    return [TextContent(type="text", text="\n".join(response_lines))]
+

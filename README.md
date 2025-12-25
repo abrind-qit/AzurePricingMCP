@@ -44,6 +44,7 @@ Then configure your AI assistant (VS Code, Claude Desktop, etc.) to use the MCP 
 | 🔍 **Price Search** | Search Azure prices with filters (service, region, SKU, price type) |
 | ⚖️ **Price Comparison** | Compare costs across regions or between different SKUs |
 | 💡 **Cost Estimation** | Calculate monthly/yearly costs based on usage hours |
+| 🎫 **Reserved Instances** | Compare 1-year and 3-year RI pricing with break-even analysis |
 | 💰 **Savings Plans** | View 1-year and 3-year savings plan pricing |
 | 🎯 **Smart SKU Discovery** | Fuzzy matching for service names ("vm" → "Virtual Machines") |
 | 🌍 **Region Recommendations** | Find the cheapest Azure regions for any SKU with savings analysis |
@@ -60,6 +61,7 @@ Then configure your AI assistant (VS Code, Claude Desktop, etc.) to use the MCP 
 |------|-------------|
 | `azure_price_search` | Search Azure retail prices with flexible filtering |
 | `azure_price_compare` | Compare prices across regions or SKUs |
+| `azure_ri_pricing` | Get Reserved Instance pricing and savings analysis |
 | `azure_cost_estimate` | Estimate costs based on usage patterns |
 | `azure_region_recommend` | Find cheapest regions for a SKU with savings percentages |
 | `azure_discover_skus` | List available SKUs for a specific service |
