@@ -475,4 +475,3 @@ async def _handle_ri_pricing(pricing_server, arguments: dict) -> list[TextConten
         response_lines.append("No Reserved Instance pricing found for the given criteria.")
 
     return [TextContent(type="text", text="\n".join(response_lines))]
-
