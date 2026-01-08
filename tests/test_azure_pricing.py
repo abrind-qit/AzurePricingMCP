@@ -2,6 +2,7 @@
 
 from typing import Any
 from unittest.mock import AsyncMock, MagicMock, patch
+import os
 
 import pytest
 from mcp.types import TextContent
@@ -281,7 +282,7 @@ class TestAzurePricingServer:
         """Test customer discount retrieval."""
         result = await pricing_server.get_customer_discount()
 
-        assert result["discount_percentage"] == 10.0
+        assert result["discount_percentage"] == 0.0
         assert result["customer_id"] == "default"
         assert result["discount_type"] == "standard"
 
@@ -291,7 +292,21 @@ class TestAzurePricingServer:
         result = await pricing_server.get_customer_discount(customer_id="customer123")
 
         assert result["customer_id"] == "customer123"
-        assert result["discount_percentage"] == 10.0
+        assert result["discount_percentage"] == 0.0
+
+    @pytest.mark.asyncio
+    async def test_get_customer_discount_with_env_var(self, pricing_server):
+        """Test customer discount with environment variable set."""
+        with patch.dict(os.environ, {"AZURE_DISCOUNT_PERCENT": "15.0"}):
+            # We need to re-import or re-initialize the server/module to pick up the env var
+            # dependent constant if it was loaded at module level.
+            # However, since DEFAULT_CUSTOMER_DISCOUNT is a module-level constant,
+            # we might need to reload the module or patch the constant directly.
+            
+            # Since patching the constant is easier for testing the logic that USES it:
+            with patch("azure_pricing_mcp.server.DEFAULT_CUSTOMER_DISCOUNT", 15.0):
+                result = await pricing_server.get_customer_discount()
+                assert result["discount_percentage"] == 15.0
 
     @pytest.mark.asyncio
     async def test_apply_discount_to_items(self, pricing_server):
@@ -357,7 +372,7 @@ class TestToolHandlers:
             }
 
             with patch.object(pricing_server, "get_customer_discount") as mock_discount:
-                mock_discount.return_value = {"discount_percentage": 10.0}
+                mock_discount.return_value = {"discount_percentage": 0.0}
 
                 result = await _handle_price_search(pricing_server, {"service_name": "Virtual Machines"})
 

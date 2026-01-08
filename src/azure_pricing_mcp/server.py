@@ -7,6 +7,7 @@ A Model Context Protocol server that provides tools for querying Azure retail pr
 
 import asyncio
 import logging
+import os
 from typing import Any
 
 import aiohttp
@@ -26,7 +27,8 @@ MAX_RESULTS_PER_REQUEST = 1000
 # Retry and rate limiting configuration
 MAX_RETRIES = 3
 RATE_LIMIT_RETRY_BASE_WAIT = 5  # seconds
-DEFAULT_CUSTOMER_DISCOUNT = 10.0  # percent
+RATE_LIMIT_RETRY_BASE_WAIT = 5  # seconds
+DEFAULT_CUSTOMER_DISCOUNT = float(os.environ.get("AZURE_DISCOUNT_PERCENT", "0.0"))  # percent
 
 # Common service name mappings for fuzzy search
 # Maps user-friendly terms to official Azure service names
