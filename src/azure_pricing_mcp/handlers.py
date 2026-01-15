@@ -1,3 +1,4 @@
+#!/usr/bin/env python3
 """Tool handlers for Azure Pricing MCP Server."""
 
 import json
@@ -7,7 +8,6 @@ from typing import Any
 from mcp.types import TextContent
 
 logger = logging.getLogger(__name__)
-
 
 def register_tool_handlers(server: Any, pricing_server: Any) -> None:
     """Register all tool call handlers with the server.
@@ -44,9 +44,6 @@ def register_tool_handlers(server: Any, pricing_server: Any) -> None:
                 elif name == "azure_ri_pricing":
                     return await _handle_ri_pricing(pricing_server, arguments)
 
-                elif name == "get_customer_discount":
-                    return await _handle_customer_discount(pricing_server, arguments)
-
                 else:
                     return [TextContent(type="text", text=f"Unknown tool: {name}")]
 
@@ -57,18 +54,10 @@ def register_tool_handlers(server: Any, pricing_server: Any) -> None:
 
 async def _handle_price_search(pricing_server, arguments: dict) -> list[TextContent]:
     """Handle azure_price_search tool calls."""
-    # Always get customer discount and apply it
-    customer_discount = await pricing_server.get_customer_discount()
-    discount_percentage = customer_discount["discount_percentage"]
-
-    # Add discount to arguments if not already specified
-    if "discount_percentage" not in arguments:
-        arguments["discount_percentage"] = discount_percentage
-
     result = await pricing_server.search_azure_prices(**arguments)
 
     # Format the response
-    if result["items"]:
+    if result.get("items"):
         formatted_items = []
         for item in result["items"]:
             formatted_item = {
@@ -77,33 +66,20 @@ async def _handle_price_search(pricing_server, arguments: dict) -> list[TextCont
                 "sku": item.get("skuName"),
                 "region": item.get("armRegionName"),
                 "location": item.get("location"),
-                "discounted_price": item.get("retailPrice"),
+                "price": item.get("retailPrice"),
                 "unit": item.get("unitOfMeasure"),
                 "type": item.get("type"),
                 "savings_plans": item.get("savingsPlan", []),
             }
 
-            # Add original price and savings if discount was applied
+            # Preserve originalPrice if present but do not present discount calculations
             if "originalPrice" in item:
-                original_price = item["originalPrice"]
-                discounted_price = item["retailPrice"]
-                savings_amount = original_price - discounted_price
-
-                formatted_item["original_price"] = original_price
-                formatted_item["savings_amount"] = round(savings_amount, 6)
-                formatted_item["savings_percentage"] = (
-                    round((savings_amount / original_price * 100), 2) if original_price > 0 else 0
-                )
+                formatted_item["original_price"] = item.get("originalPrice")
 
             formatted_items.append(formatted_item)
 
-        if result["count"] > 0:
+        if result.get("count", 0) > 0:
             response_text = f"Found {result['count']} Azure pricing results:\n\n"
-
-            # Add discount information if applied
-            if "discount_applied" in result:
-                response_text += f"💰 **Customer Discount Applied: {result['discount_applied']['percentage']}%**\n"
-                response_text += f"   {result['discount_applied']['note']}\n\n"
 
             # Add SKU validation info if present
             if "sku_validation" in result:
@@ -127,18 +103,6 @@ async def _handle_price_search(pricing_server, arguments: dict) -> list[TextCont
                         response_text += f"   • {suggestion}\n"
                     response_text += "\n"
 
-            # Add summary of savings if discount was applied
-            if "discount_applied" in result:
-                total_original_cost = sum(item.get("original_price", 0) for item in formatted_items)
-                total_discounted_cost = sum(item.get("discounted_price", 0) for item in formatted_items)
-                total_savings = total_original_cost - total_discounted_cost
-
-                if total_savings > 0:
-                    response_text += "💰 **Total Savings Summary:**\n"
-                    response_text += f"   Original Total: ${total_original_cost:.6f}\n"
-                    response_text += f"   Discounted Total: ${total_discounted_cost:.6f}\n"
-                    response_text += f"   **You Save: ${total_savings:.6f}**\n\n"
-
             response_text += "**Detailed Pricing:**\n"
             response_text += json.dumps(formatted_items, indent=2)
 
@@ -148,10 +112,6 @@ async def _handle_price_search(pricing_server, arguments: dict) -> list[TextCont
             return [TextContent(type="text", text=response_text)]
     else:
         response_text = "No pricing results found for the specified criteria."
-
-        # Show discount info even when no results
-        if "discount_applied" in result:
-            response_text += f"\n\n💰 Note: Your {result['discount_applied']['percentage']}% customer discount would have been applied to any results."
 
         # Add SKU validation info if present
         if "sku_validation" in result:
@@ -172,13 +132,9 @@ async def _handle_price_compare(pricing_server, arguments: dict) -> list[TextCon
     """Handle azure_price_compare tool calls."""
     result = await pricing_server.compare_prices(**arguments)
 
-    response_text = f"Price comparison for {result['service_name']}:\n\n"
+    response_text = f"Price comparison for {result.get('service_name', 'N/A')}:\n\n"
 
-    # Add discount information if applied
-    if "discount_applied" in result:
-        response_text += f"💰 {result['discount_applied']['percentage']}% discount applied - {result['discount_applied']['note']}\n\n"
-
-    response_text += json.dumps(result["comparisons"], indent=2)
+    response_text += json.dumps(result.get("comparisons", []), indent=2)
 
     return [TextContent(type="text", text=response_text)]
 
@@ -196,26 +152,15 @@ async def _handle_region_recommend(pricing_server, arguments: dict) -> list[Text
         return [TextContent(type="text", text="No region recommendations found for the specified criteria.")]
 
     # Build response text
-    response_text = f"""🌍 Region Recommendations for {result['service_name']} - {result['sku_name']}
-
-Currency: {result['currency']}
-Total regions found: {result['total_regions_found']}
-Showing top: {result['showing_top']}
-"""
-
-    # Add discount information if applied
-    if "discount_applied" in result:
-        response_text += f"\n💰 {result['discount_applied']['percentage']}% discount applied - {result['discount_applied']['note']}\n"
+    response_text = f"🌍 Region Recommendations for {result.get('service_name', 'N/A')} - {result.get('sku_name', '')}\n\n"
+    response_text += f"Currency: {result.get('currency')}\n"
+    response_text += f"Total regions found: {result.get('total_regions_found')}\n"
+    response_text += f"Showing top: {result.get('showing_top')}\n"
 
     # Add summary
     if "summary" in result:
         summary = result["summary"]
-        response_text += f"""
-📊 Summary:
-   🥇 Cheapest: {summary['cheapest_location']} ({summary['cheapest_region']}) - ${summary['cheapest_price']:.6f}
-   🥉 Most Expensive: {summary['most_expensive_location']} ({summary['most_expensive_region']}) - ${summary['most_expensive_price']:.6f}
-   💰 Max Savings: {summary['max_savings_percentage']:.1f}% by choosing the cheapest region
-"""
+        response_text += f"\n📊 Summary:\n   🥇 Cheapest: {summary.get('cheapest_location')} ({summary.get('cheapest_region')}) - ${summary.get('cheapest_price'):.6f}\n"
 
     # Build recommendations table
     response_text += "\n📋 Ranked Recommendations (On-Demand Pricing):\n\n"
@@ -230,37 +175,12 @@ Showing top: {result['showing_top']}
         unit = rec.get("unit_of_measure", "")
         spot_price = rec.get("spot_price")
 
-        # Add medal emoji for top 3
         rank_display = {1: "🥇 1", 2: "🥈 2", 3: "🥉 3"}.get(i, str(i))
-
-        # Format spot price column
         spot_display = f"${spot_price:.6f}" if spot_price else "N/A"
 
         response_text += (
             f"| {rank_display} | {region} | {location} | ${price:.6f}/{unit} | {spot_display} | {savings:.1f}% |\n"
         )
-
-    # Add Spot pricing note if any recommendations have spot pricing
-    spot_available = [rec for rec in recommendations if rec.get("spot_price")]
-    if spot_available:
-        response_text += "\n💡 **Spot Pricing Available:**\n"
-        for rec in spot_available[:5]:  # Show top 5 with spot pricing
-            location = rec.get("location", "N/A")
-            spot_price = rec.get("spot_price", 0)
-            on_demand = rec.get("retail_price", 0)
-            spot_savings = ((on_demand - spot_price) / on_demand * 100) if on_demand > 0 else 0
-            response_text += (
-                f"   • {location}: Spot @ ${spot_price:.4f}/hr ({spot_savings:.0f}% cheaper than On-Demand)\n"
-            )
-        response_text += "   ⚠️ Note: Spot VMs can be evicted when Azure needs capacity\n"
-
-    # Add original prices if discount was applied
-    if "discount_applied" in result and recommendations and "original_price" in recommendations[0]:
-        response_text += "\n💵 Original prices (before discount):\n"
-        for i, rec in enumerate(recommendations[:3], 1):  # Show top 3 original prices
-            location = rec.get("location", "N/A")
-            original = rec.get("original_price", 0)
-            response_text += f"   {i}. {location}: ${original:.6f}\n"
 
     return [TextContent(type="text", text=response_text)]
 
@@ -274,55 +194,16 @@ async def _handle_cost_estimate(pricing_server, arguments: dict) -> list[TextCon
 
     # Format cost estimate
     estimate_text = f"""
-Cost Estimate for {result['service_name']} - {result['sku_name']}
-Region: {result['region']}
-Product: {result['product_name']}
-Unit: {result['unit_of_measure']}
-Currency: {result['currency']}
-"""
-
-    # Add discount information if applied
-    if "discount_applied" in result:
-        estimate_text += f"\n💰 {result['discount_applied']['percentage']}% discount applied - {result['discount_applied']['note']}\n"
+Cost Estimate for {result.get('service_name', '')} - {result.get('sku_name', '')}\nRegion: {result.get('region', '')}\nProduct: {result.get('product_name', '')}\nUnit: {result.get('unit_of_measure', '')}\nCurrency: {result.get('currency', '')}\n"""
 
     estimate_text += f"""
-Usage Assumptions:
-- Hours per month: {result['usage_assumptions']['hours_per_month']}
-- Hours per day: {result['usage_assumptions']['hours_per_day']}
+Usage Assumptions:\n- Hours per month: {result.get('usage_assumptions', {}).get('hours_per_month')}\n- Hours per day: {result.get('usage_assumptions', {}).get('hours_per_day')}\n
+On-Demand Pricing:\n- Hourly Rate: ${result.get('on_demand_pricing', {}).get('hourly_rate')}\n- Daily Cost: ${result.get('on_demand_pricing', {}).get('daily_cost')}\n- Monthly Cost: ${result.get('on_demand_pricing', {}).get('monthly_cost')}\n- Yearly Cost: ${result.get('on_demand_pricing', {}).get('yearly_cost')}\n"""
 
-On-Demand Pricing:
-- Hourly Rate: ${result['on_demand_pricing']['hourly_rate']}
-- Daily Cost: ${result['on_demand_pricing']['daily_cost']}
-- Monthly Cost: ${result['on_demand_pricing']['monthly_cost']}
-- Yearly Cost: ${result['on_demand_pricing']['yearly_cost']}
-"""
-
-    # Add original pricing if discount was applied
-    if "discount_applied" in result and "original_hourly_rate" in result["on_demand_pricing"]:
-        estimate_text += f"""
-Original Pricing (before discount):
-- Hourly Rate: ${result['on_demand_pricing']['original_hourly_rate']}
-- Daily Cost: ${result['on_demand_pricing']['original_daily_cost']}
-- Monthly Cost: ${result['on_demand_pricing']['original_monthly_cost']}
-- Yearly Cost: ${result['on_demand_pricing']['original_yearly_cost']}
-"""
-
-    if result["savings_plans"]:
+    if result.get('savings_plans'):
         estimate_text += "\nSavings Plans Available:\n"
-        for plan in result["savings_plans"]:
-            estimate_text += f"""
-{plan['term']} Term:
-- Hourly Rate: ${plan['hourly_rate']}
-- Monthly Cost: ${plan['monthly_cost']}
-- Yearly Cost: ${plan['yearly_cost']}
-- Savings: {plan['savings_percent']}% (${plan['annual_savings']} annually)
-"""
-            # Add original pricing for savings plans if discount was applied
-            if "original_hourly_rate" in plan:
-                estimate_text += f"""- Original Hourly Rate: ${plan['original_hourly_rate']}
-- Original Monthly Cost: ${plan['original_monthly_cost']}
-- Original Yearly Cost: ${plan['original_yearly_cost']}
-"""
+        for plan in result['savings_plans']:
+            estimate_text += f"\n{plan.get('term')} Term:\n- Hourly Rate: ${plan.get('hourly_rate')}\n- Monthly Cost: ${plan.get('monthly_cost')}\n- Yearly Cost: ${plan.get('yearly_cost')}\n- Savings: {plan.get('savings_percent')}% (${plan.get('annual_savings')} annually)\n"
 
     return [TextContent(type="text", text=estimate_text)]
 
@@ -331,30 +212,27 @@ async def _handle_discover_skus(pricing_server, arguments: dict) -> list[TextCon
     """Handle azure_discover_skus tool calls."""
     result = await pricing_server.discover_skus(**arguments)
 
-    # Format the response
     skus = result.get("skus", [])
     if skus:
         return [
             TextContent(
                 type="text",
-                text=f"Found {result['total_skus']} SKUs for {result['service_name']}:\n\n"
-                + json.dumps(skus, indent=2),
+                text=f"Found {result.get('total_skus', 0)} SKUs for {result.get('service_name', '')}:\n\n" + json.dumps(skus, indent=2),
             )
         ]
     else:
-        return [TextContent(type="text", text="No SKUs found for the specified service.")]
+        return [TextContent(type="text", text="No SKUs found for the specified service.")]    
 
 
 async def _handle_sku_discovery(pricing_server, arguments: dict) -> list[TextContent]:
     """Handle azure_sku_discovery tool calls."""
     result = await pricing_server.discover_service_skus(**arguments)
 
-    if result["service_found"]:
-        # Format successful SKU discovery
-        service_name = result["service_found"]
-        original_search = result["original_search"]
-        skus = result["skus"]
-        total_skus = result["total_skus"]
+    if result.get("service_found"):
+        service_name = result.get("service_found")
+        original_search = result.get("original_search")
+        skus = result.get("skus")
+        total_skus = result.get("total_skus")
         match_type = result.get("match_type", "exact")
 
         response_text = f"SKU Discovery for '{original_search}'"
@@ -364,7 +242,6 @@ async def _handle_sku_discovery(pricing_server, arguments: dict) -> list[TextCon
 
         response_text += f"\n\nFound {total_skus} SKUs for {service_name}:\n\n"
 
-        # Group SKUs by product
         products: dict[str, list[tuple]] = {}
         for sku_name, sku_data in skus.items():
             product = sku_data["product_name"]
@@ -374,7 +251,7 @@ async def _handle_sku_discovery(pricing_server, arguments: dict) -> list[TextCon
 
         for product, product_skus in products.items():
             response_text += f"📦 {product}:\n"
-            for sku_name, sku_data in sorted(product_skus)[:10]:  # Limit to 10 per product
+            for sku_name, sku_data in sorted(product_skus)[:10]:
                 min_price = sku_data.get("min_price", 0)
                 unit = sku_data.get("sample_unit", "Unknown")
                 region_count = len(sku_data.get("regions", []))
@@ -388,18 +265,17 @@ async def _handle_sku_discovery(pricing_server, arguments: dict) -> list[TextCon
 
         return [TextContent(type="text", text=response_text)]
     else:
-        # Format suggestions when no exact match
         suggestions = result.get("suggestions", [])
-        original_search = result["original_search"]
+        original_search = result.get("original_search")
 
         if suggestions:
             response_text = f"No exact match found for '{original_search}'\n\n"
             response_text += "🔍 Did you mean one of these services?\n\n"
 
             for i, suggestion in enumerate(suggestions[:5], 1):
-                service_name = suggestion["service_name"]
-                match_reason = suggestion["match_reason"]
-                sample_items = suggestion["sample_items"]
+                service_name = suggestion.get("service_name")
+                match_reason = suggestion.get("match_reason")
+                sample_items = suggestion.get("sample_items")
 
                 response_text += f"{i}. {service_name}\n"
                 response_text += f"   Reason: {match_reason}\n"
@@ -421,57 +297,6 @@ async def _handle_sku_discovery(pricing_server, arguments: dict) -> list[TextCon
             response_text += "• 'vm' or 'virtual machine' for Virtual Machines\n"
             response_text += "• 'storage' or 'blob' for Storage services\n"
             response_text += "• 'sql' or 'database' for SQL Database\n"
-            response_text += "• 'kubernetes' or 'aks' for Azure Kubernetes Service"
+            response_text += "• 'kubernetes' or 'aks' for Azure Kubernetes Service"\n"
 
         return [TextContent(type="text", text=response_text)]
-
-
-async def _handle_customer_discount(pricing_server, arguments: dict) -> list[TextContent]:
-    """Handle get_customer_discount tool calls."""
-    result = await pricing_server.get_customer_discount(**arguments)
-
-    response_text = f"""Customer Discount Information
-
-Customer ID: {result['customer_id']}
-Discount Type: {result['discount_type']}
-Discount Percentage: {result['discount_percentage']}%
-Description: {result['description']}
-Applicable Services: {result['applicable_services']}
-
-{result['note']}
-"""
-
-    return [TextContent(type="text", text=response_text)]
-
-
-async def _handle_ri_pricing(pricing_server, arguments: dict) -> list[TextContent]:
-    """Handle azure_ri_pricing tool calls."""
-    result = await pricing_server.get_ri_pricing(**arguments)
-
-    response_lines = []
-
-    if result.get("comparison"):
-        response_lines.append("### Reserved Instance Savings Analysis\n")
-        for comp in result["comparison"]:
-            response_lines.append(f"- **{comp['sku']}** ({comp['region']}) - {comp['term']}")
-            response_lines.append(f"  - Savings: **{comp['savings_percentage']}%**")
-            response_lines.append(f"  - RI Rate: {comp['ri_hourly']}/hr vs OD Rate: {comp['od_hourly']}/hr")
-            if comp.get("break_even_months"):
-                response_lines.append(f"  - Break-even: **{comp['break_even_months']} months**")
-            response_lines.append(f"  - Est. Annual Savings: ${comp['annual_savings']:,}")
-            response_lines.append("")
-
-    if result.get("ri_items"):
-        response_lines.append(f"### Raw RI Pricing ({result['count']} items)")
-        for item in result["ri_items"][:10]:  # Show top 10
-            response_lines.append(
-                f"- {item.get('skuName')} ({item.get('armRegionName')}): "
-                f"{item.get('retailPrice')} {result['currency']} / {item.get('unitOfMeasure')} "
-                f"({item.get('reservationTerm')})"
-            )
-        if len(result["ri_items"]) > 10:
-            response_lines.append(f"... and {len(result['ri_items']) - 10} more.")
-    else:
-        response_lines.append("No Reserved Instance pricing found for the given criteria.")
-
-    return [TextContent(type="text", text="\n".join(response_lines))]
